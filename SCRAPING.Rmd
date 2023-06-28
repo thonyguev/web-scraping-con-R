@@ -1,0 +1,336 @@
+---
+title: "Web Scraping con R"
+autors: "Itzi Arrocha, Antonio Ramos, Manuel Guevara"
+output:
+  html_document:
+    df_print: paged
+---
+
+## Librerias
+
+Se cargarán las librerias necesarias.
+
+-   [wdman](https://docs.ropensci.org/wdman/): para tener los binarios del webdriver y activar un servidor local.
+
+-   [RSelenium](https://docs.ropensci.org/RSelenium/): permite realizar la conexión con el webdriver y obtener el contenido de las paginas HTML.
+
+-   [rvest](https://rvest.tidyverse.org/): maneja los datos de la página HTML, para filtrar la informacion que buscamos.
+
+-   [DT](https://rstudio.github.io/DT/): esta libreria permite visualizar datos en formato tablas.
+
+```{r}
+library(wdman)
+library(RSelenium)
+library(rvest)
+library(DT)
+library(htmltools)
+```
+
+## Configuración de RSelenium
+
+### Paso #1
+
+La libreria [wdman](https://docs.ropensci.org/wdman/) permite crear un servidor local para controlar el navegador que solicitemos, en este caso Chrome.
+
+-   El parametro `verbose = FALSE`, es para que no muestre la salida de la llamada al servidor.
+
+```{r}
+driver_server <- chrome(verbose = FALSE)
+```
+
+### Paso #2
+
+Se configura el driver remoto de RSelenium.
+
+-   remoteServerAddr: es la direccion IP del servidor, en este caso es local, por ende se coloca `"localhost"`.
+
+-   port: es el puerto donde se llama el servicio del driver de RSelenium.
+
+-   browserName: es el navegador que usaremos.
+
+-   extraCapabilities: son caracteristicas adicionales que le podemos agregar al driver de RSelenium, en este caso le agregamos una `chromeOptions`, la cual es `--headless`, esta característica permite ejecutar el navegador sin ventana grafica.
+
+```{r}
+remDr <- remoteDriver$new(
+  remoteServerAddr = "localhost",
+  port = 4567,
+  browserName = "chrome",
+  extraCapabilities = list(
+    chromeOptions =
+      list(
+        args = list("--headless")
+      )
+  )
+)
+```
+
+### Paso #3
+
+Con `$open()` se abre la conexión con el navegador, si el navegador esta en modo headless no mostrara la ventana del navegador.
+
+-   El parametro `silent = TRUE`, permite abrir una conexion sin detalles de salida.
+
+```{r}
+remDr$open(silent = TRUE)
+```
+
+## Consulta a la página web
+
+### Paso #1
+
+`$navigate()` recibe la url donde se desea navegar.
+
+```{r}
+url_navigate <- "https://yoytec.com/categoria-producto/computadoras/"
+remDr$navigate(url_navigate)
+```
+
+### Paso #2
+
+`$getPageSource()`, obtiene el contenido de la pagina HTML.
+
+```{r}
+content <- remDr$getPageSource()
+```
+
+### Paso #3
+
+`read_html()` es un metodo de rvest que permite leer HTML, que podemos utilizar para manejar el contenido de la pagina, para que los metodos como `html_elements(), html_element()` puedan buscar atraves de las etiquetas de la pagina HTML
+
+Como `content` es una lista, accedemos a su valor colocando la posición, en este caso el valor esta en la posición 1 = `[1]` del elemento 1 = `[[1]]` de la lista content
+
+```{r}
+page <- read_html(content[[1]][1])
+```
+
+### Paso #4
+
+Se cierra todas las sesiones del navegador con `remDr$close()` y posterior se detiene el servidor controlador con `driver_server$stop()`
+
+Este paso depende del contexto, si solo realizamos un consulta entonces si podemos cerrar y parar el servidor de selenium, pero si vamos a realizar varias consultas entonces seria al finalizar todo el proceso.
+
+```{r}
+remDr$close()
+driver_server$stop()
+```
+
+### Paso #5
+
+Se inicia el scraping, buscando la siguiente información: nombre del producto, precio, imagen, enlace.
+
+#### Definición del selector - Nombre
+
+Se definen el selector html para buscar el nombre del producto.
+
+```{r}
+product_name_selector <- "h3 > a"
+```
+
+#### Busqueda de la información - Nombre
+
+`html_elements()` busca todas las etiquetas html que coincidan con el selector, y `html_text()` obtendran solo el texto contenido en dichas etiquetas.
+
+```{r}
+product_name <- page %>% html_elements(product_name_selector) %>% html_text()
+```
+
+#### Cantidad de elementos encontrados - Nombre
+
+Para mostrar la cantidad de elementos encontrados, se utiliza el metodo `length()`, ya que el resultado es una lista, obtendremos las longitud de la misma.
+
+```{r}
+product_name %>% length
+```
+
+#### Visualización de los elementos encontrados en una tabla - Nombre
+
+Para mostrar los resultados encontrados en tablas utilizaremos una librerias de visualización de datos llamada DT.
+
+Transformamos el resultado en un data frame para que pueda ser leido por el metodo `datatable()` y a posteriori muestre la tabla.
+
+```{r}
+product_name %>% data.frame %>% datatable
+```
+
+#### Definición del selector - Imagen
+
+```{r}
+product_image_selector <- "div > a.product-image-link > img"
+```
+
+#### Busqueda de la información - Imagen
+
+```{r}
+product_image <- page %>% html_elements(product_image_selector) %>% html_attr("src")
+```
+
+#### Cantidad de elementos encontrados - Imagen
+
+```{r}
+product_image %>% length
+```
+
+#### Visualización de los elementos encontrados en una tabla - Imagen
+
+```{r}
+product_image %>% data.frame %>% datatable
+```
+
+#### Visualización de las imagenes en galeria
+
+`lapply` es un metodo que permite aplicar una funcion a cada elemento de una lista
+
+El metodo `tags` permite crear etiquetas html desde R, en este caso estamos creando una etiqueta `img` con los atributos `src` (url de la imagen) y `width` (ancho de la imagen en pixeles), como estamos utilizando lapply esta funcion cada url de `product_image`, que es la variable que contiene todas las urls de las imagenes.
+
+```{r}
+gallery_html <- lapply(product_image, function(url) {
+  tags$img(src = url, width = "125px") 
+})
+```
+
+La variable `gallery_html` almacenara todas las etiquetas img creadas, dicha variable sera contenida en una etiqueta div atraves del metodo `div()` y luego representada visualmente con el metodo `browsable()`
+
+```{r}
+div(gallery_html) %>% browsable
+```
+
+#### Definición del selector - Precio
+
+```{r}
+product_price_selector <- "span.price > span > bdi"
+```
+
+#### Busqueda de la información - Precio
+
+```{r}
+product_price <- page %>% html_elements(product_price_selector) %>% html_text
+```
+
+#### Cantidad de elementos encontrados - Precio
+
+```{r}
+product_price %>% length
+```
+
+#### Visualización de los elementos encontrados en una tabla - Precio
+
+```{r}
+product_price %>% data.frame %>% datatable
+```
+
+#### Definición del selector - Enlace
+
+```{r}
+product_link_selector <- "h3 > a"
+```
+
+#### Busqueda de la información - Enlace
+
+```{r}
+product_link <- page %>% html_elements(product_link_selector) %>% html_attr("href")
+```
+
+#### Cantidad de elementos encontrados - Enlace
+
+```{r}
+product_link %>% length
+```
+
+#### Visualización de los elementos encontrados en una tabla - Enlace
+
+```{r}
+product_link %>% data.frame %>% datatable
+```
+
+Lo anteriormente realizado, realizar scraping de una página en concreto, ese sitio web puede tener paginación, para obtener la informacion de todas esas paginas debemos hacer lo siguiente.
+
+#### Activar el driver de RSelenium
+
+```{r}
+driver_server <- chrome(verbose = FALSE)
+
+remDr <- remoteDriver$new(
+  remoteServerAddr = "localhost",
+  port = 4567,
+  browserName = "chrome",
+  extraCapabilities = list(
+    chromeOptions =
+      list(
+        args = list("--headless")
+      )
+  )
+)
+
+remDr$open(silent = TRUE)
+```
+
+#### Buscar la paginación de la página
+
+Seleccionar el selector
+
+```{r}
+pagination_selector <- "nav.woocommerce-pagination > ul > li > a"
+```
+
+Navegar a la sección de paginación para obtener su html
+
+```{r}
+url_navigate <- "https://yoytec.com/categoria-producto/computadoras/"
+remDr$navigate(url_navigate)
+
+content <- remDr$getPageSource()
+page <- read_html(content[[1]][1])
+```
+
+Buscar la cantidad de páginas en la paginación
+
+```{r}
+pagination_amount <- page %>% html_elements(pagination_selector) %>% html_text
+pagination_amount <- pagination_amount[grep("[0-9]",pagination_amount)] %>% max %>% as.numeric
+pagination_amount <- 1:pagination_amount
+pagination_amount
+```
+
+Obtener una URL de referencia para acceder a cada paginación
+
+```{r}
+url_pagination <- page %>% html_element(pagination_selector) %>% html_attr("href")
+```
+
+Atraves de la función `getData`, reemplazaremos el número de las paginas en la URL de referencia, para asi pasar los numeros obtenidos en `pagination_amount`
+
+```{r}
+remDr$open(silent = T)
+
+getData <- function(number){
+  url <- gsub("2",number,url_pagination)
+  remDr$navigate(url)
+  content <- remDr$getPageSource()
+  return(content[[1]][1])
+}
+```
+
+Con la función `map` recorremos la secuencia de numeros de pagination_amount, pasandole por cada iteracion la funcion getData, que es la que permite reemplazar el numero de las paginas
+
+```{r}
+library(purrr)
+response <- list()
+response <- map(pagination_amount,getData)
+```
+
+Luego aplicamos otra vez la función map para recorrer cada una de las páginas y obtener su respectivo HTML
+
+```{r}
+product_name <- map(response, function(data){
+  page <- read_html(data)
+  result <- page %>% html_elements(product_name_selector) %>% html_text
+  return(result)
+})
+
+product_name %>% unlist %>% data.frame %>% datatable
+```
+
+```{r}
+remDr$close()
+driver_server$stop()
+```

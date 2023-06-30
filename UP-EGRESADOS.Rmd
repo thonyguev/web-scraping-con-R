@@ -1,0 +1,60 @@
+```{r}
+library(wdman)
+library(RSelenium)
+library(rvest)
+library(DT)
+library(htmltools)
+```
+
+```{r}
+driver_server <- chrome(verbose = FALSE)
+```
+
+```{r}
+remDr <- remoteDriver$new(
+  remoteServerAddr = "localhost",
+  port = 4567,
+  browserName = "chrome",
+  # extraCapabilities = list(
+  #   chromeOptions =
+  #     list(
+  #       args = list("--headless")
+  #     )
+  # )
+)
+```
+
+```{r}
+remDr$open(silent = TRUE)
+```
+
+```{r}
+url_navigate <- "https://upportal.up.ac.pa/buscador_egresados.php"
+remDr$navigate(url_navigate)
+```
+
+```{r}
+input <- remDr$findElement(using = "id", value = "anio")
+input$sendKeysToElement(list("2022"))
+```
+
+```{r}
+button <- remDr$findElement(using = "id", value = "buscar")
+button$clickElement()
+```
+
+```{r}
+content <- remDr$getPageSource()
+page <- read_html(content[[1]][1])
+```
+
+```{r}
+selector <- "table > tbody > tr > td"
+response <- page %>% html_nodes(selector) %>% html_text
+response
+```
+
+```{r}
+remDr$close()
+driver_server$stop()
+```
